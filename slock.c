@@ -44,8 +44,10 @@ struct xrandr {
 	int errbase;
 };
 
+/* Add config options */
 #include "config.h"
 
+/* Exit graciously */
 static void
 die(const char *errstr, ...)
 {
@@ -61,6 +63,7 @@ die(const char *errstr, ...)
 #include <fcntl.h>
 #include <linux/oom.h>
 
+/* Attempt to disable OOM killer */
 static void
 dontkillme(void)
 {
@@ -83,6 +86,7 @@ dontkillme(void)
 }
 #endif
 
+/* Retreive user password hash from either passwd or shadow */
 static const char *
 gethash(void)
 {
@@ -124,6 +128,7 @@ gethash(void)
 	return hash;
 }
 
+/* Wait for and handle user input */
 static void
 readpw(Display *dpy, struct xrandr *rr, struct lock **locks, int nscreens,
        const char *hash)
@@ -140,16 +145,19 @@ readpw(Display *dpy, struct xrandr *rr, struct lock **locks, int nscreens,
 	failure = 0;
 	oldc = INIT;
 
+	/* wait for inputs */
 	while (running && !XNextEvent(dpy, &ev)) {
 		if (ev.type == KeyPress) {
 			explicit_bzero(&buf, sizeof(buf));
 			num = XLookupString(&ev.xkey, buf, sizeof(buf), &ksym, 0);
+			/* handle numpad */
 			if (IsKeypadKey(ksym)) {
 				if (ksym == XK_KP_Enter)
 					ksym = XK_Return;
 				else if (ksym >= XK_KP_0 && ksym <= XK_KP_9)
 					ksym = (ksym - XK_KP_0) + XK_0;
 			}
+			/* Ignore special keys */
 			if (IsFunctionKey(ksym) ||
 			    IsKeypadKey(ksym) ||
 			    IsMiscFunctionKey(ksym) ||
@@ -157,6 +165,7 @@ readpw(Display *dpy, struct xrandr *rr, struct lock **locks, int nscreens,
 			    IsPrivateKeypadKey(ksym))
 				continue;
 			switch (ksym) {
+			/* Do password hash check */
 			case XK_Return:
 				passwd[len] = '\0';
 				errno = 0;
@@ -171,14 +180,17 @@ readpw(Display *dpy, struct xrandr *rr, struct lock **locks, int nscreens,
 				explicit_bzero(&passwd, sizeof(passwd));
 				len = 0;
 				break;
+			/* clear password */
 			case XK_Escape:
 				explicit_bzero(&passwd, sizeof(passwd));
 				len = 0;
 				break;
+			/* delete last password character */
 			case XK_BackSpace:
 				if (len)
 					passwd[--len] = '\0';
 				break;
+			/* add char to password buffer*/
 			default:
 				if (num && !iscntrl((int)buf[0]) &&
 				    (len + num < sizeof(passwd))) {
@@ -187,6 +199,7 @@ readpw(Display *dpy, struct xrandr *rr, struct lock **locks, int nscreens,
 				}
 				break;
 			}
+			/* do screen color changes */
 			color = len ? INPUT : ((failure || failonclear) ? FAILED : INIT);
 			if (running && oldc != color) {
 				for (screen = 0; screen < nscreens; screen++) {
@@ -197,6 +210,7 @@ readpw(Display *dpy, struct xrandr *rr, struct lock **locks, int nscreens,
 				}
 				oldc = color;
 			}
+		/* Handle different screen rotations */
 		} else if (rr->active && ev.type == rr->evbase + RRScreenChangeNotify) {
 			rre = (XRRScreenChangeNotifyEvent*)&ev;
 			for (screen = 0; screen < nscreens; screen++) {
@@ -219,6 +233,7 @@ readpw(Display *dpy, struct xrandr *rr, struct lock **locks, int nscreens,
 	}
 }
 
+/* Lockscreen base */
 static struct lock *
 lockscreen(Display *dpy, struct xrandr *rr, int screen)
 {
@@ -229,19 +244,21 @@ lockscreen(Display *dpy, struct xrandr *rr, int screen)
 	XSetWindowAttributes wa;
 	Cursor invisible;
 
+	/* Return if unable to create lock window */
 	if (dpy == NULL || screen < 0 || !(lock = malloc(sizeof(struct lock))))
 		return NULL;
 
 	lock->screen = screen;
 	lock->root = RootWindow(dpy, lock->screen);
 
+	/* Get valid XColors for every color defined in colorname */
 	for (i = 0; i < NUMCOLS; i++) {
 		XAllocNamedColor(dpy, DefaultColormap(dpy, lock->screen),
 		                 colorname[i], &color, &dummy);
 		lock->colors[i] = color.pixel;
 	}
 
-	/* init */
+	/* Create overlay lockscreen window */
 	wa.override_redirect = 1;
 	wa.background_pixel = lock->colors[INIT];
 	lock->win = XCreateWindow(dpy, lock->root, 0, 0,
@@ -251,6 +268,8 @@ lockscreen(Display *dpy, struct xrandr *rr, int screen)
 	                          CopyFromParent,
 	                          DefaultVisual(dpy, lock->screen),
 	                          CWOverrideRedirect | CWBackPixel, &wa);
+
+	/* Make cursor invisible */
 	lock->pmap = XCreateBitmapFromData(dpy, lock->win, curs, 8, 8);
 	invisible = XCreatePixmapCursor(dpy, lock->pmap, lock->pmap,
 	                                &color, &color, 0, 0);
@@ -297,12 +316,14 @@ lockscreen(Display *dpy, struct xrandr *rr, int screen)
 	return NULL;
 }
 
+/* Command usage prompt */
 static void
 usage(void)
 {
 	die("usage: slock [-v] [cmd [arg ...]]\n");
 }
 
+/* entrypoint */
 int
 main(int argc, char **argv) {
 	struct xrandr rr;
@@ -315,6 +336,7 @@ main(int argc, char **argv) {
 	Display *dpy;
 	int s, nlocks, nscreens;
 
+	/* Handle predefined arguments */
 	ARGBEGIN {
 	case 'v':
 		fprintf(stderr, "slock-"VERSION"\n");
@@ -335,10 +357,12 @@ main(int argc, char **argv) {
 		    errno ? strerror(errno) : "group entry not found");
 	dgid = grp->gr_gid;
 
+/* Disable OOM killer on linux environments */
 #ifdef __linux__
 	dontkillme();
 #endif
 
+	/* try and get user pass hash or fail */
 	hash = gethash();
 	errno = 0;
 	if (!crypt("", hash))
