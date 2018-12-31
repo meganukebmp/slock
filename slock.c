@@ -174,7 +174,8 @@ readpw(Display *dpy, struct xrandr *rr, struct lock **locks, int nscreens,
 				else
 					running = !!strcmp(inputhash, hash);
 				if (running) {
-					XBell(dpy, 100);
+					if (bellonfail) 
+						XBell(dpy, 100);
 					failure = 1;
 				}
 				explicit_bzero(&passwd, sizeof(passwd));

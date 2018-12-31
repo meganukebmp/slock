@@ -10,3 +10,5 @@ static const char *colorname[NUMCOLS] = {
 
 /* treat a cleared input like a wrong password (color) */
 static const int failonclear = 1;
+/* ring system bell on wrong password */
+static const int bellonfail = 1;
